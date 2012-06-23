@@ -57,11 +57,13 @@ Executable index.cgi
   Build-depends:       base
                      , template-haskell
                      , utf8-string
+                     , bytestring
                      , cgi
                      , csv
                      , parsec
                      , system-argv0
                      , system-filepath
+                     , system-fileio
                      , safe
   
   -- Modules not exported by this package.

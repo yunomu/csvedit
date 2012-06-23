@@ -6,21 +6,24 @@ module Main
 import Codec.Binary.UTF8.String
 import Control.Applicative
 import Data.Maybe
+import qualified Data.ByteString.Char8 as BC
+import qualified Filesystem as FS
+import Filesystem.Path
 import qualified Filesystem.Path.CurrentOS as F
 import Network.CGI
+import Prelude hiding (FilePath)
 import Safe
 import System.Argv0
-import System.IO
-import qualified System.IO.UTF8 as U
+import System.IO hiding (FilePath)
 import Text.CSV
 import Text.Parsec hiding (getInput, (<|>))
 
 import Str
 
-dataFile :: IO String
+dataFile :: IO FilePath
 dataFile = do
     argv0 <- getArgv0
-    return $ (F.encodeString $ F.directory argv0) ++ "data.csv"
+    return $ directory argv0 </> F.decodeString "data.csv"
 
 contents :: String -> String
 contents body = header ++ body ++ footer
@@ -81,12 +84,12 @@ h rs = tr $ foldl (++) "" (map th rs)
 loadCSV :: IO (Record, CSV, Int)
 loadCSV = do
     path <- dataFile
-    withFile path ReadMode $ \file -> do
+    FS.withFile path ReadMode $ \file -> do
         hline <- hGetLine file
         let hres = parse csv "header" $ encodeString hline
         header <- either (fail . show) (return . head) hres
         other <- hGetContents file
-        let result = parse csv "csv parse" $ encodeString other
+        let result = parse csv "csv parse" $ other
         csvret <- either (fail . show) (return . initIf (==[""])) result
         nid <- maybe (fail "newId Error") return $ newId csvret
         return (header, csvret, nid)
@@ -145,7 +148,7 @@ deleteRecord records = do
 update :: Record -> CSV -> IO CSV
 update header new = do
     let newData = header:new
-    dataFile >>= (flip U.writeFile $ decodeString $ printCSV newData)
+    dataFile >>= (flip FS.writeFile $ BC.pack $ printCSV newData)
     return new
 
 main :: IO ()
