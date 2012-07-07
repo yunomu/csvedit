@@ -5,6 +5,8 @@ module Main
 
 import Codec.Binary.UTF8.String
 import Control.Applicative
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Maybe
 import Data.Maybe
 import qualified Data.ByteString.Char8 as BC
 import qualified Filesystem as FS
@@ -110,40 +112,43 @@ loadCSV = do
                 then newId' l fs
                 else newId' val fs
 
-getNewRecord :: MonadCGI m => Int -> Int -> m (Maybe Record)
-getNewRecord newId num =
-    getRecord' num [] >>= return . sequence . (Just (show newId):)
+getInput' :: MonadCGI m => String -> MaybeT m String
+getInput' query = do
+    val <- lift $ getInput query
+    maybe (fail "query not found") return val
+
+getNewRecord :: MonadCGI m => Int -> Int -> MaybeT m Record
+getNewRecord newId num = do
+    record <- getRecord num []
+    return $ show newId:record
   where
-    getRecord' :: MonadCGI m => Int -> [Maybe Field] -> m [Maybe Field]
-    getRecord' 0 ret = return ret
-    getRecord' n ret = do
+    getRecord :: MonadCGI m => Int -> [Field] -> MaybeT m Record
+    getRecord 0 ret = return ret
+    getRecord n ret = do
         field <- getField n
-        getRecord' (n-1) (field:ret)
+        getRecord (n-1) (field:ret)
 
-    getField :: MonadCGI m => Int -> m (Maybe Field)
-    getField n = getInput $ "f" ++ show n
+    getField :: MonadCGI m => Int -> MaybeT m Field
+    getField n = getInput' $ "f" ++ show n
 
-addRecord :: MonadCGI m => Int -> Int -> CSV -> m (Maybe CSV)
+addRecord :: MonadCGI m => Int -> Int -> CSV -> MaybeT m CSV
 addRecord num newId records = do
-    record <- getNewRecord newId num
-    maybe
-        (return Nothing)
-        (\new -> return $ Just $ records ++ [new])
-        record
+    new <- getNewRecord newId num
+    return $ records ++ [new]
 
-deleteRecord :: MonadCGI m => CSV -> m (Maybe CSV)
+deleteRecord :: MonadCGI m => CSV -> MaybeT m CSV
 deleteRecord records = do
-    mDel <- getInput "delete"
-    mSeq <- getInput "id"
-    return $ mDel >> mSeq >>= delete records
+    getInput' "delete"
+    delId <- getInput' "id"
+    maybe (fail "delete id not found") return $ delete records delId
   where
     delete :: CSV -> String -> Maybe CSV
-    delete []     _        = Nothing
+    delete []     _      = Nothing
     delete (s:ss) delseq = do
-        headMay s >>= \sseq ->
-            if sseq == delseq
-                then Just ss
-                else (s:) <$> delete ss delseq
+        sseq <- headMay s
+        if sseq == delseq
+          then Just ss
+          else (s:) <$> delete ss delseq
 
 update :: Record -> CSV -> IO CSV
 update header new = do
@@ -155,11 +160,10 @@ main :: IO ()
 main = runCGI $ handleCGI (output . contents . show) $ do
     (header, dat, lastId) <- liftIO loadCSV
     let len = (length header) - 1
-    ret <- sequence [addRecord len (lastId + 1) dat, deleteRecord dat]
-    dat2 <- maybe (return dat) (liftIO . update header) $ first ret
+    ret <- runMaybeT $ addRecord len (lastId + 1) dat <|> deleteRecord dat
+    dat2 <- maybe (return dat) (liftIO . update header) ret
     setHeader "Content-type" "text/html; charset=UTF-8"
     output $ contents $ showTable header dat2 ++ makeform header len
   where
     handleCGI = flip catchCGI
-    first = headMay . catMaybes
 

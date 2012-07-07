@@ -51,7 +51,7 @@ Executable index.cgi
 
   -- .hs or .lhs file containing the Main module.
   Main-is:             Main.hs
-  GHC-Options:         -Wall
+  GHC-Options:         -Wall -fno-warn-unused-do-bind
   
   -- Packages needed in order to build this package.
   Build-depends:       base
@@ -65,6 +65,7 @@ Executable index.cgi
                      , system-filepath
                      , system-fileio
                      , safe
+                     , transformers
   
   -- Modules not exported by this package.
   Other-modules:       Str
